@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"errors"
 	"strings"
 
 	libkb "github.com/keybase/client/go/libkb"
@@ -24,6 +25,7 @@ type Prove struct {
 	sigID      keybase1.SigID
 	postRes    *libkb.PostProofRes
 	signingKey libkb.GenericKey
+	sigInner   []byte
 
 	remoteNameNormalized string
 
@@ -181,12 +183,41 @@ func (p *Prove) generateProof(ctx *Context) (err error) {
 		return err
 	}
 
-	if p.proof, err = p.me.ServiceProof(p.signingKey, p.st, p.remoteNameNormalized); err != nil {
+	// Make V2 Sigs default
+	sigVersion := libkb.SigVersion(p.arg.SigVersion)
+	if sigVersion == 0 {
+		sigVersion = libkb.KeybaseSignatureV2
+	}
+
+	if p.proof, err = p.me.ServiceProof(p.signingKey, p.st, p.remoteNameNormalized, sigVersion); err != nil {
 		return
 	}
-	if p.sig, p.sigID, _, err = libkb.SignJSON(p.proof, p.signingKey); err != nil {
+
+	if p.sigInner, err = p.proof.Marshal(); err != nil {
 		return
 	}
+
+	switch sigVersion {
+	case libkb.KeybaseSignatureV1:
+		p.sig, p.sigID, err = p.signingKey.SignToString(p.sigInner)
+	case libkb.KeybaseSignatureV2:
+		prevSeqno := p.me.GetSigChainLastKnownSeqno()
+		prevLinkID := p.me.GetSigChainLastKnownID()
+
+		p.sig, p.sigID, _, err = libkb.MakeSigchainV2OuterSig(
+			p.signingKey,
+			libkb.LinkTypeWebServiceBinding,
+			prevSeqno+1,
+			p.sigInner,
+			prevLinkID,
+			false, /* hasRevokes */
+			keybase1.SeqType_PUBLIC,
+			false, /* ignoreIfUnsupported */
+		)
+	default:
+		err = errors.New("Invalid Signature Version")
+	}
+
 	return
 }
 
@@ -199,6 +230,9 @@ func (p *Prove) postProofToServer(ctx *Context) (err error) {
 		RemoteUsername: p.remoteNameNormalized,
 		RemoteKey:      p.st.GetAPIArgKey(),
 		SigningKey:     p.signingKey,
+	}
+	if libkb.SigVersion(p.arg.SigVersion) == libkb.KeybaseSignatureV2 {
+		arg.SigInner = p.sigInner
 	}
 	p.postRes, err = libkb.PostProof(ctx.GetNetContext(), p.G(), arg)
 	return

@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/keybase/client/go/libkb"
@@ -94,14 +95,47 @@ func (e *CryptocurrencyEngine) Run(ctx *Context) (err error) {
 		return err
 	}
 
-	claim, err := me.CryptocurrencySig(sigKey, e.arg.Address, typ, sigIDToRevoke, merkleRoot)
+	// Make V2 Sigs default
+	sigVersion := libkb.SigVersion(e.arg.SigVersion)
+	if sigVersion == 0 {
+		sigVersion = libkb.KeybaseSignatureV2
+	}
+
+	claim, err := me.CryptocurrencySig(sigKey, e.arg.Address, typ, sigIDToRevoke, merkleRoot, sigVersion)
 	if err != nil {
 		return err
 	}
-	sig, _, _, err := libkb.SignJSON(claim, sigKey)
+
+	sigInner, err := claim.Marshal()
 	if err != nil {
 		return err
 	}
+
+	var sig string
+	switch sigVersion {
+	case libkb.KeybaseSignatureV1:
+		sig, _, err = sigKey.SignToString(sigInner)
+	case libkb.KeybaseSignatureV2:
+		prevSeqno := me.GetSigChainLastKnownSeqno()
+		prevLinkID := me.GetSigChainLastKnownID()
+		sig, _, _, err = libkb.MakeSigchainV2OuterSig(
+			sigKey,
+			libkb.LinkTypeCryptocurrency,
+			prevSeqno+1,
+			sigInner,
+			prevLinkID,
+			len(sigIDToRevoke) > 0, /* hasRevokes */
+			keybase1.SeqType_PUBLIC,
+			false, /* ignoreIfUnsupported */
+		)
+	default:
+		err = errors.New("Invalid Signature Version")
+	}
+
+	if err != nil {
+		return err
+	}
+
 	kid := sigKey.GetKID()
 	args := libkb.HTTPArgs{
 		"sig":             libkb.S{Val: sig},
@@ -111,6 +145,10 @@ func (e *CryptocurrencyEngine) Run(ctx *Context) (err error) {
 	}
 	if lease != nil {
 		args["downgrade_lease_id"] = libkb.S{Val: string(lease.LeaseID)}
+	}
+
+	if sigVersion == libkb.KeybaseSignatureV2 {
+		args["sig_inner"] = libkb.S{Val: string(sigInner)}
 	}
 
 	_, err = e.G().API.Post(libkb.APIArg{

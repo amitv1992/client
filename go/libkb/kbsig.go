@@ -441,11 +441,12 @@ func KeyProof(arg Delegator) (ret *jsonw.Wrapper, err error) {
 	return
 }
 
-func (u *User) ServiceProof(signingKey GenericKey, typ ServiceType, remotename string) (ret *jsonw.Wrapper, err error) {
+func (u *User) ServiceProof(signingKey GenericKey, typ ServiceType, remotename string, sigVersion SigVersion) (ret *jsonw.Wrapper, err error) {
 	ret, err = ProofMetadata{
 		Me:         u,
 		LinkType:   LinkTypeWebServiceBinding,
 		SigningKey: signingKey,
+		SigVersion: sigVersion,
 	}.ToJSON(u.G())
 	if err != nil {
 		return
@@ -539,12 +540,13 @@ func (u *User) RevokeSigsProof(key GenericKey, sigIDsToRevoke []keybase1.SigID, 
 	return ret, nil
 }
 
-func (u *User) CryptocurrencySig(key GenericKey, address string, typ CryptocurrencyType, sigToRevoke keybase1.SigID, merkleRoot *MerkleRoot) (*jsonw.Wrapper, error) {
+func (u *User) CryptocurrencySig(key GenericKey, address string, typ CryptocurrencyType, sigToRevoke keybase1.SigID, merkleRoot *MerkleRoot, sigVersion SigVersion) (*jsonw.Wrapper, error) {
 	ret, err := ProofMetadata{
 		Me:         u,
 		LinkType:   LinkTypeCryptocurrency,
 		SigningKey: key,
 		MerkleRoot: merkleRoot,
+		SigVersion: sigVersion,
 	}.ToJSON(u.G())
 	if err != nil {
 		return nil, err
