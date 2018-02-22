@@ -485,7 +485,7 @@ func GetSupersedes(msg chat1.MessageUnboxed) ([]chat1.MessageID, error) {
 var chanNameMentionRegExp = regexp.MustCompile(`\B#([0-9a-zA-Z_-]+)`)
 
 func ParseChannelNameMentions(ctx context.Context, body string, uid gregor1.UID, teamID chat1.TLFID,
-	ts types.TeamChannelSource) (res []types.ConvIDAndTopicName) {
+	ts types.TeamChannelSource) (res []chat1.ChannelNameMention) {
 	names := parseRegexpNames(ctx, body, chanNameMentionRegExp)
 	if len(names) == 0 {
 		return nil
@@ -494,7 +494,7 @@ func ParseChannelNameMentions(ctx context.Context, body string, uid gregor1.UID,
 	if err != nil {
 		return nil
 	}
-	validChans := make(map[string]types.ConvIDAndTopicName)
+	validChans := make(map[string]chat1.ChannelNameMention)
 	for _, cr := range chanResponse {
 		validChans[cr.TopicName] = cr
 	}
@@ -855,7 +855,7 @@ func computeOutboxOrdinal(obr chat1.OutboxRecord) float64 {
 	return float64(obr.Msg.ClientHeader.OutboxInfo.Prev) + float64(obr.Ordinal)/1000.0
 }
 
-func presentChannelNameMentions(ctx context.Context, crs []types.ConvIDAndTopicName) (res []chat1.UIChannelNameMention) {
+func presentChannelNameMentions(ctx context.Context, crs []chat1.ChannelNameMention) (res []chat1.UIChannelNameMention) {
 	for _, cr := range crs {
 		res = append(res, chat1.UIChannelNameMention{
 			Name:   cr.TopicName,
@@ -880,27 +880,8 @@ func PresentMessageUnboxed(ctx context.Context, rawMsg chat1.MessageUnboxed, uid
 	if err != nil {
 		return miscErr(err)
 	}
-
 	switch state {
 	case chat1.MessageUnboxedState_VALID:
-		bodyIsDeleted := rawMsg.Valid().MessageBody.IsNil()
-
-		// Get channel name mentions (only frontend really cares about these, so just get it here)
-		var channelNameMentions []types.ConvIDAndTopicName
-		switch rawMsg.GetMessageType() {
-		case chat1.MessageType_TEXT:
-			if bodyIsDeleted {
-				return miscErr(fmt.Errorf("unexpected deleted message"))
-			}
-			channelNameMentions = ParseChannelNameMentions(ctx, rawMsg.Valid().MessageBody.Text().Body, uid,
-				rawMsg.Valid().ClientHeader.Conv.Tlfid, tcs)
-		case chat1.MessageType_EDIT:
-			if bodyIsDeleted {
-				return miscErr(fmt.Errorf("unexpected deleted edit"))
-			}
-			channelNameMentions = ParseChannelNameMentions(ctx, rawMsg.Valid().MessageBody.Edit().Body, uid,
-				rawMsg.Valid().ClientHeader.Conv.Tlfid, tcs)
-		}
 		var strOutboxID *string
 		if rawMsg.Valid().ClientHeader.OutboxID != nil {
 			so := rawMsg.Valid().ClientHeader.OutboxID.String()
@@ -918,7 +899,7 @@ func PresentMessageUnboxed(ctx context.Context, rawMsg chat1.MessageUnboxed, uid
 			Superseded:            rawMsg.Valid().ServerHeader.SupersededBy != 0,
 			AtMentions:            rawMsg.Valid().AtMentionUsernames,
 			ChannelMention:        rawMsg.Valid().ChannelMention,
-			ChannelNameMentions:   presentChannelNameMentions(ctx, channelNameMentions),
+			ChannelNameMentions:   presentChannelNameMentions(ctx, rawMsg.Valid().ChannelNameMentions),
 		})
 	case chat1.MessageUnboxedState_OUTBOX:
 		var body string
