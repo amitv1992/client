@@ -12,6 +12,7 @@ import {
   mobileOsVersion,
   version,
   logFileName,
+  traceDir,
 } from '../constants/platform'
 import {type TimerProps} from '../common-adapters/hoc-timers'
 import {writeLogLinesToFile} from '../util/forward-logs'
@@ -63,9 +64,9 @@ class FeedbackContainer extends Component<{status: string} & TimerProps, State> 
 
       maybeDump
         .then(() => {
-          const path = logFileName()
+          const logPath = logFileName()
           logger.info(`Sending ${sendLogs ? 'log' : 'feedback'} to daemon`)
-          return logSend(this.props.status, feedback, sendLogs, path)
+          return logSend(this.props.status, feedback, sendLogs, logPath, traceDir())
         })
         .then(logSendId => {
           logger.info('logSendId is', logSendId)
